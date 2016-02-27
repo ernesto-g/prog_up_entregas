@@ -83,7 +83,12 @@ const GPIOData gpioLed3 = {2,12,1,12,FUNC0};
 
 const GPIOData gpioSw1 = {1,0,0,4,FUNC0};
 
+#define TIME_WINDOW		4000
+
 /*==================[internal data declaration]==============================*/
+uint32_t pulsesCounter=0;
+float frecuency;
+uint32_t ledState=0;
 
 /*==================[internal functions declaration]=========================*/
 
@@ -97,6 +102,38 @@ void SysTick_Handler(void) {
 	os_coop_scheduler();
 }
 /*==================[external functions definition]==========================*/
+
+static void boardUartInit(void)
+{
+	Chip_UART_Init(LPC_USART2);
+	Chip_UART_SetBaud(LPC_USART2, 115200);
+	Chip_UART_SetupFIFOS(LPC_USART2, UART_FCR_FIFO_EN | UART_FCR_TRG_LEV0);
+	Chip_UART_TXEnable(LPC_USART2);
+
+	Chip_SCU_PinMux(7, 1, MD_PDN, FUNC6);              /* P7_1: UART2_TXD */
+	Chip_SCU_PinMux(7, 2, MD_PLN|MD_EZI|MD_ZI, FUNC6); /* P7_2: UART2_RXD */
+
+	/* Restart FIFOS: set Enable, Reset content, set trigger level */
+   	Chip_UART_SetupFIFOS(LPC_USART2, UART_FCR_FIFO_EN | UART_FCR_TX_RS | UART_FCR_RX_RS | UART_FCR_TRG_LEV0);
+   	/* dummy read */
+   	Chip_UART_ReadByte(LPC_USART2);
+   	/* enable rx interrupt */
+   	Chip_UART_IntEnable(LPC_USART2, UART_IER_RBRINT);
+}
+uint32_t Board_UART_Write(uint8_t* buffer, uint32_t size)
+{
+   uint32_t ret = 0;
+
+   while(ret<size)
+   {
+       while((Chip_UART_ReadLineStatus(LPC_USART2) & UART_LSR_THRE) == 0){}
+
+       Chip_UART_SendByte(LPC_USART2, buffer[ret]);
+       /* bytes written */
+       ret++;
+   }
+   return ret;
+}
 
 static void boardButtonsInit(void) {
 
@@ -153,6 +190,8 @@ void boardInit(void) {
    /* Config EDU-CIAA-NXP Led Pins */
    boardLedsInit();
 
+   boardUartInit();
+
 }
 
 void semaforo_setLight(uint32_t lightNum, uint32_t value)
@@ -184,14 +223,15 @@ uint32_t readSw1(void)
 void eventPressed(void)
 {
 	semaforo_setLight(LIGHT_GREEN,LIGHT_ON);
+	pulsesCounter++;
 }
 void eventReleased(void)
 {
 	semaforo_setLight(LIGHT_GREEN,LIGHT_OFF);
 }
 
-uint32_t ledState=0;
-void toggleLed(void)
+
+void toggleLedTask(void)
 {	
 	if(ledState==0)
 	{
@@ -204,6 +244,37 @@ void toggleLed(void)
 		ledState=0;
 	}
 
+}
+
+
+
+void timeWindowTask(void)
+{
+	if(pulsesCounter>0)
+		frecuency = pulsesCounter/(TIME_WINDOW/1000);
+	else
+		frecuency = 0.0;
+
+	pulsesCounter=0;
+}
+
+void reportFrecuencyTask(void)
+{
+	// send frecuency by UART
+	uint32_t i = frecuency;
+	uint8_t d = (i/10);
+	uint8_t u = (i - d*10);
+	uint32_t f = (uint32_t)((frecuency-i)*10);
+
+	d=d+0x30;
+	u=u+0x30;
+	f=f+0x30;
+	Board_UART_Write("frec:", 5);
+	Board_UART_Write(&d, 1);
+	Board_UART_Write(&u, 1);
+	Board_UART_Write(".", 1);
+	Board_UART_Write(&f, 1);
+	Board_UART_Write("Hz\n", 3);
 }
 
 /** \brief Main function
@@ -224,9 +295,12 @@ int main(void)
 	pulsador_setReleasedCallback(eventReleased); // configuro callback de release
 
 	os_coop_init(100);
-	//os_coop_addTask(pulsador_stateMachine,OS_COOP_TASK_TYPE_REALTIME,OS_COOP_TASK_PRIORITY_HIGH,1); // each 1ms
-	os_coop_addTask(pulsador_stateMachine,OS_COOP_TASK_TYPE_REALTIME,OS_COOP_TASK_PRIORITY_HIGH,0); // always
-	os_coop_addTask(toggleLed,OS_COOP_TASK_TYPE_NORMAL,OS_COOP_TASK_PRIORITY_LOW,500); // each 500ms
+
+	os_coop_addTask(pulsador_stateMachine,OS_COOP_TASK_TYPE_REALTIME,OS_COOP_TASK_PRIORITY_HIGH,1); // each 1ms
+	os_coop_addTask(timeWindowTask,OS_COOP_TASK_TYPE_REALTIME,OS_COOP_TASK_PRIORITY_HIGH,TIME_WINDOW); 
+	os_coop_addTask(toggleLedTask,OS_COOP_TASK_TYPE_NORMAL,OS_COOP_TASK_PRIORITY_LOW,500); // each 500ms
+	os_coop_addTask(reportFrecuencyTask,OS_COOP_TASK_TYPE_NORMAL,OS_COOP_TASK_PRIORITY_LOW,5000); // 5 second
+
 	os_coop_start();
 
    	while(1) {
@@ -238,7 +312,6 @@ int main(void)
 			semaforo_setLight(LIGHT_RED,LIGHT_OFF);
 		//______________________________________
 
-		//pulsador_stateMachine();
   		os_coop_dispacher();
 
 	}   

@@ -162,11 +162,32 @@ void os_coop_dispacher(void)
 static void recalculateTasksOffsets(void)
 {
 	uint32_t i;
+	uint32_t offsetDelta = (uint32_t)(osCoopData.averageTasksDuration/1000) + 1;
+	
+	uint32_t offset=0;
+	// distribute realtime tasks adding an offset to execution period
 	for(i=0; i<OS_COOP_TASKS_LEN; i++)
 	{
 		if(tasksData[i].flagEmpty==0)
 		{
-			tasksData[i].offset=0; // TODO
+			if(tasksData[i].type==OS_COOP_TASK_TYPE_REALTIME)
+			{
+				tasksData[i].offset = offset;
+				offset+=offsetDelta;
+			}
 		}
 	}
+
+	// normal tasks have all the same offset (after real time tasks)
+	for(i=0; i<OS_COOP_TASKS_LEN; i++)
+	{
+		if(tasksData[i].flagEmpty==0)
+		{
+			if(tasksData[i].type==OS_COOP_TASK_TYPE_NORMAL)
+			{
+				tasksData[i].offset = offset;
+			}
+		}
+	}
+
 }

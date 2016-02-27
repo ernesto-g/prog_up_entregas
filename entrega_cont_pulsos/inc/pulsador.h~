@@ -14,8 +14,8 @@
 #define STATE_BUTTON_RAISING	2
 #define STATE_BUTTON_DOWN		3
 
-#define TIMEOUT_RAISING		1000
-#define TIMEOUT_FALLING		1000
+#define TIMEOUT_RAISING		1000 // esta exagerado para que se vea
+#define TIMEOUT_FALLING		1000 // esta exagerado para que se vea
 
 
 void pulsador_tick(void);

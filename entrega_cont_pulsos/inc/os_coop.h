@@ -51,7 +51,7 @@ void os_coop_stop(void);
 	@param priority 	: Task Priority. Posble values are:
 							- OS_COOP_TASK_PRIORITY_HIGH : Task will be loaded at the top of the scheduler queue
 							- OS_COOP_TASK_PRIORITY_LOW : Task will be loaded at the bottom of the scheduler queue
-	@param period		: Task period in miliseconds.
+	@param period		: Task period in miliseconds. If period is 0 the task will be executed each time os_coop_dispacher is called.
 
 	@return				: 1 if the task was added. 0 in case of error.
 

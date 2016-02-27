@@ -37,7 +37,7 @@ void os_coop_init(uint32_t averageTasksDuration);
 void os_coop_start(void);
 
 /**
-	os_coop_stop : Stops the operating system. 
+	os_coop_stop : Stops the operating system.
 */
 void os_coop_stop(void);
 

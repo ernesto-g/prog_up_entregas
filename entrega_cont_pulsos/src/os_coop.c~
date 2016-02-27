@@ -60,6 +60,10 @@ void os_coop_start(void)
 {
 	osCoopData.flagRun = 1;
 }
+void os_coop_stop(void)
+{
+	osCoopData.flagRun = 0;
+}
 
 uint32_t os_coop_addTask(void (*functionPtr)(void),uint32_t type,uint32_t priority,uint32_t period)
 {
@@ -158,11 +162,54 @@ void os_coop_dispacher(void)
 static void recalculateTasksOffsets(void)
 {
 	uint32_t i;
+	uint32_t realTimeCounter=0;
+	uint32_t normalCounter=0;
+	uint32_t taskCounter=0;
+	uint32_t offsetDelta = (uint32_t)(osCoopData.averageTasksDuration/1000) + 1;
+	
+	// count real time and normal tasks
 	for(i=0; i<OS_COOP_TASKS_LEN; i++)
 	{
 		if(tasksData[i].flagEmpty==0)
 		{
-			tasksData[i].offset=0; // TODO
+			tasksData[i].offset=0; // default offset=0
+			taskCounter++;
+			if(tasksData[i].type==OS_COOP_TASK_TYPE_REALTIME)
+				realTimeCounter++;
+			else
+				normalCounter++;
 		}
 	}
+	//_________________________________
+
+	uint32_t offset=0;
+	if(realTimeCounter>1)
+	{
+		// distribute realtime tasks adding an offset to execution period
+		for(i=0; i<OS_COOP_TASKS_LEN; i++)
+		{
+			if(tasksData[i].flagEmpty==0)
+			{
+				if(tasksData[i].type==OS_COOP_TASK_TYPE_REALTIME)
+				{
+					tasksData[i].offset = offset;
+					offset+=offsetDelta;
+				}
+			}
+		}
+	}
+	if(normalCounter>0)
+	{
+		// normal tasks have all the same offset (after real time tasks)
+		for(i=0; i<OS_COOP_TASKS_LEN; i++)
+		{
+			if(tasksData[i].flagEmpty==0)
+			{
+				if(tasksData[i].type==OS_COOP_TASK_TYPE_NORMAL)
+				{
+					tasksData[i].offset = offset;
+				}
+			}
+		}
+	}	
 }
