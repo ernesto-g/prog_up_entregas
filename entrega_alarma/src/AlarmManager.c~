@@ -1,0 +1,203 @@
+#include "chip.h"
+#include "serialPort.h"
+#include "UserInterface.h"
+#include "AlarmManager.h"
+#include "Sensors.h"
+#include "Outputs.h"
+
+
+static uint32_t amStatus;
+
+const static int8_t* MSG_DISARM = "\r\nSystem disarmed\r\n";
+const static int8_t* MSG_INVALID_PASS = "\r\nInvalid password\r\n";
+const static int8_t* MSG_ARMING = "\r\nArming. Waiting 60 seconds";
+const static int8_t* MSG_ARMED = "\r\nSystem armed\r\n";
+const static int8_t* MSG_DISARMING = "\r\nDisarming. Waiting 60 seconds";
+const static int8_t* MSG_ALARM_ACTIVATED = "\r\nALARM ACTIVATED";
+
+
+const static uint8_t* validPass = "1234";
+
+
+static uint32_t checkPass(int8_t* pass);
+static void alarmOn(void);
+static void alarmOff(void);
+
+
+void am_init(void)
+{
+	amStatus = AM_STATE_DISARM;
+}
+
+void am_stateMachine(void)
+{
+
+	switch(amStatus)
+	{
+		case AM_STATE_DISARM:
+		{
+			alarmOff();
+			ui_showMessage(MSG_DISARM);
+			amStatus = AM_STATE_DISARM2;			
+			break;
+		}
+		case AM_STATE_DISARM2:
+		{
+			if(os_coop_waitMs(0,200))
+				break;
+
+			ui_showEnterPass();
+			amStatus = AM_STATE_WAIT_FOR_ARM;			
+			break;
+		}
+		case AM_STATE_WAIT_FOR_ARM:
+		{
+			if(ui_isPassEntered())
+			{
+				int8_t* pass = ui_getPassword();
+				if(checkPass(pass))
+				{
+					amStatus = AM_STATE_ARMING;
+				}
+				else
+				{
+					ui_showMessage(MSG_INVALID_PASS);
+					amStatus = AM_STATE_DISARM;
+				}
+			}
+			break;
+		}
+		case AM_STATE_ARMING:
+		{
+			ui_showMessage(MSG_ARMING);
+			amStatus = AM_STATE_WAITING_ARMING;				
+			break;
+		}
+		case AM_STATE_WAITING_ARMING:
+		{
+			if(os_coop_waitMs(0,10000)) // 60 seconds
+				break;
+
+			ui_showMessage(MSG_ARMED);
+			amStatus = AM_STATE_ARMED;			
+			break;
+		}
+
+		//_________________________________________________
+		case AM_STATE_ARMED:
+		{
+			if(os_coop_waitMs(0,100))
+				break;
+
+			Board_Outputs_set(OUTPUT_LED_ARM, OUTPUT_ON);
+			Board_Outputs_set(OUTPUT_LED_DISARM, OUTPUT_OFF);
+
+			amStatus = AM_STATE_WAIT_FOR_DISARM;			
+			break;
+		}
+		//__________________________________________________
+
+		case AM_STATE_WAIT_FOR_DISARM:
+		{
+			// check sensors
+			if(Board_Sensors_getValue(SENSOR_DOOR))
+			{
+				amStatus = AM_STATE_DISARMING;		
+			}
+			if(Board_Sensors_getValue(SENSOR_WINDOW_0))
+			{
+				amStatus = AM_STATE_INTRUDER;		
+			}
+
+			break;
+		}
+		case AM_STATE_DISARMING:
+		{
+			ui_showEnterPass();
+			amStatus = AM_STATE_WAITING_DISARMING;				
+			break;
+		}
+		case AM_STATE_WAITING_DISARMING:
+		{
+			if(os_coop_waitMs(0,10000)) // 60 seconds
+			{
+				if(ui_isPassEntered())
+				{
+					int8_t* pass = ui_getPassword();
+					if(checkPass(pass))
+					{
+						amStatus = AM_STATE_DISARM;
+					}
+					else
+					{
+						ui_showMessage(MSG_INVALID_PASS);
+						amStatus = AM_STATE_INTRUDER;
+					}
+					os_coop_resetWait(0); // interrupt delay before end
+				}					
+				break;
+			}
+
+			// there is no more time to ingress password, change to intruder mode
+			amStatus = AM_STATE_INTRUDER;	
+
+			break;
+		}
+		//______________________
+
+		case AM_STATE_INTRUDER:
+		{
+			alarmOn();
+			ui_showMessage(MSG_ALARM_ACTIVATED);
+			amStatus = AM_STATE_INTRUDER2;
+			break;
+		}
+		case AM_STATE_INTRUDER2:
+		{
+			if(os_coop_waitMs(0,100))
+				break;
+
+			ui_showEnterPass();
+			amStatus = AM_STATE_INTRUDER_WAIT_PASS;
+			break;
+		}
+		case AM_STATE_INTRUDER_WAIT_PASS:
+		{
+			if(ui_isPassEntered())
+			{
+				int8_t* pass = ui_getPassword();
+				if(checkPass(pass))
+				{
+					amStatus = AM_STATE_DISARM;
+				}
+				else
+				{
+					ui_showMessage(MSG_INVALID_PASS);
+					amStatus = AM_STATE_INTRUDER;
+				}
+			}
+			break;
+		}
+	}
+}
+
+static uint32_t checkPass(int8_t* pass)
+{
+	if(pass[0]==validPass[0] && pass[1]==validPass[1] && pass[2]==validPass[2] && pass[3]==validPass[3])
+		return 1;
+	return 0;
+}
+
+static void alarmOn(void)
+{
+	Board_Outputs_set(OUTPUT_SIREN, OUTPUT_ON);
+}
+
+static void alarmOff(void)
+{
+	Board_Outputs_set(OUTPUT_SIREN, OUTPUT_OFF);
+	Board_Outputs_set(OUTPUT_LED_ARMED, OUTPUT_OFF);
+	Board_Outputs_set(OUTPUT_LED_DISARMED, OUTPUT_ON);
+}
+
+
